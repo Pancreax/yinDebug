@@ -14,6 +14,7 @@ class YinAudioPitchDetector:
         self.mDataInputBuffer = np.zeros(self.bufferSize)
         self.mHannHelper = 0.5 - (0.5 * np.cos((2.0 * np.pi * np.arange(bufferSize)) / (bufferSize - 1)))
         self.minFrequency = 20.0
+        self.currentThreshold = 0.12
 
     def process(self, buffer):
         pitch = -1
@@ -26,8 +27,9 @@ class YinAudioPitchDetector:
 
         runningSum = 0
         delta = 0
-        tauEstimate = -1
+        self.tauEstimate = -1
         self.maxFindRange = int(self.sampleRate / self.minFrequency)
+        mThresholdOk = False
 
         for tau in range(1, self.maxFindRange):
             # Yin Algorithm: Difference function
@@ -39,13 +41,30 @@ class YinAudioPitchDetector:
             runningSum += self.mYinBuffer[tau]
             self.mYinBuffer[tau] *= tau / runningSum
 
+        for tau in range(1, self.maxFindRange):
             # Yin Algorithm: Absolute threshold
-            #if mThresholdOk:
-            #    if self.mYinBuffer[tau - 1] <= self.mYinBuffer[tau]:
-            #        tauEstimate = tau - 1
-            #        break
-            #elif self.mYinBuffer[tau] < self.currentThreshold:
-            #    mThresholdOk = True
+            if mThresholdOk:
+                if self.mYinBuffer[tau - 1] <= self.mYinBuffer[tau]:
+                    self.tauEstimate = tau - 1
+                    break
+            elif self.mYinBuffer[tau] < self.currentThreshold:
+                mThresholdOk = True
+
+        self.betterTau = -1
+        if self.tauEstimate != -1:
+            x0 = self.tauEstimate if self.tauEstimate < 1 else self.tauEstimate - 1
+            x2 = self.tauEstimate + 1 if self.tauEstimate + 1 < len(self.mYinBuffer) else self.tauEstimate
+
+            if x0 == self.tauEstimate:
+                self.betterTau = self.tauEstimate if self.mYinBuffer[self.tauEstimate] <= self.mYinBuffer[x2] else x2
+            elif x2 == self.tauEstimate:
+                self.betterTau = self.tauEstimate if self.mYinBuffer[self.tauEstimate] <= self.mYinBuffer[x0] else x0
+            else:
+                s0 = self.mYinBuffer[x0]
+                s1 = self.mYinBuffer[self.tauEstimate]
+                s2 = self.mYinBuffer[x2]
+
+                self.betterTau = self.tauEstimate + 0.5 * (s2 - s0) / (2.0 * s1 - s2 - s0)
 
 
 
@@ -161,11 +180,21 @@ class SineWaveApp(QWidget):
         self.slider1 = FrequencySlider("Frequency", self.update_frequency1, self.update_amplitude1)
         sliders_h_layout.addLayout(self.slider1.layout)
 
-        self.pitchLabel = QLabel("Hz")
+        self.pitchLabelByMin = QLabel("Hz")
+        self.tauLabelByMin = QLabel("Tau")
+        self.pitchLabelByThreshold = QLabel("Hz")
+        self.tauLabelByThreshold = QLabel("Tau")
+        self.pitchLabelByBetterTau = QLabel("Hz")
+        self.tauLabelByBetterTau = QLabel("Tau")
 
         main_layout.addLayout(sliders_h_layout)
 
-        main_layout.addWidget(self.pitchLabel)
+        main_layout.addWidget(self.pitchLabelByMin)
+        main_layout.addWidget(self.tauLabelByMin)
+        main_layout.addWidget(self.pitchLabelByThreshold)
+        main_layout.addWidget(self.tauLabelByThreshold)
+        main_layout.addWidget(self.pitchLabelByBetterTau)
+        main_layout.addWidget(self.tauLabelByBetterTau)
         # Set layout
         self.setLayout(main_layout)
 
@@ -204,7 +233,12 @@ class SineWaveApp(QWidget):
 
         min_index = np.argmin(self.yin.mYinBuffer[:self.yin.maxFindRange])
         frequency = self.sampleRate/min_index
-        self.pitchLabel.setText(f"Frequency: {frequency:.2f} Hz")
+        self.pitchLabelByMin.setText(f"Frequency(by min): {frequency:.2f} Hz")
+        self.tauLabelByMin.setText(f"Tau: (by min) {min_index:.2f}")
+        self.pitchLabelByThreshold.setText(f"Frequency(by threshold): {self.sampleRate/self.yin.tauEstimate:.2f} Hz")
+        self.tauLabelByThreshold.setText(f"Tau: (by threshold) {self.yin.tauEstimate:.2f}")
+        self.pitchLabelByBetterTau.setText(f"Frequency(by better tau): {self.sampleRate/self.yin.betterTau:.2f} Hz")
+        self.tauLabelByBetterTau.setText(f"Tau: (by better tau) {self.yin.betterTau:.2f}")
 
 def listen_for_exit(app):
     while True:
