@@ -135,8 +135,8 @@ class FrequencySlider:
         self.layout.addWidget(self.aslider)
         self.layout.addWidget(self.label)
 
-    def update_label(self, frequency, amplitude):
-        self.label.setText(f"{frequency:.1f}Hz {amplitude:.2} V")
+    def update_label(self, frequency, tau, amplitude):
+        self.label.setText(f"{frequency:.1f}Hz {tau:.1f}tau {amplitude:.2} V")
 
 class SineWaveApp(QWidget):
     def __init__(self):
@@ -228,8 +228,8 @@ class SineWaveApp(QWidget):
         self.graph1.update_buffer(buffer.x, self.yin.mDataInputBuffer)
         self.graph2.update_buffer(buffer.x, self.yin.mYinBuffer)
         self.graph3.update_buffer(self.sampleRate/buffer.x, self.yin.mYinBuffer)
-        self.slider0.update_label(self.freqs[0], self.amps[0])
-        self.slider1.update_label(self.freqs[1], self.amps[1])
+        self.slider0.update_label(self.freqs[0], self.sampleRate/self.freqs[0], self.amps[0])
+        self.slider1.update_label(self.freqs[1], self.sampleRate/self.freqs[1], self.amps[1])
 
         min_index = np.argmin(self.yin.mYinBuffer[:self.yin.maxFindRange])
         frequency = self.sampleRate/min_index
