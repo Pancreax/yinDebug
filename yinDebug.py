@@ -1,3 +1,4 @@
+import threading
 import sys
 import numpy as np
 from PyQt5.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QWidget
@@ -205,8 +206,21 @@ class SineWaveApp(QWidget):
         frequency = self.sampleRate/min_index
         self.pitchLabel.setText(f"Frequency: {frequency:.2f} Hz")
 
+def listen_for_exit(app):
+    while True:
+        command = input("Type 'q' to quit: ")
+        if command.strip().lower() == 'q':
+            print("Exiting...")
+            app.quit()
+            break
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = SineWaveApp()
     window.show()
+
+    # Start a thread to listen for 'q' input
+    thread = threading.Thread(target=listen_for_exit, args=(app,), daemon=True)
+    thread.start()
+
     sys.exit(app.exec_())
