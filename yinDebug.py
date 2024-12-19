@@ -1,6 +1,6 @@
 import sys
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QSlider, QLabel, QWidget
+from PyQt5.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QWidget
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
@@ -49,16 +49,16 @@ class YinAudioPitchDetector:
 
 
 class SinBuffer:
-    def __init__(self, bufferSize, sampleRate, freqs=[1,2]):
+    def __init__(self, bufferSize, sampleRate, freqs=[1,2], amps=[1.0,1.0]):
         self.bufferSize = bufferSize
         self.sampleRate = 8000
         self.x = np.linspace(0, bufferSize -1, bufferSize)
-        self.y = self.generate_sinusoids(freqs)
+        self.y = self.generate_sinusoids(freqs, amps)
 
-    def generate_sinusoids(self, freqs):
+    def generate_sinusoids(self, freqs, amps):
         y = np.zeros(self.bufferSize)
-        for freq in freqs:
-            y += np.sin(2 * np.pi * freq * self.x / self.sampleRate)
+        for i in range(len(freqs)):
+            y += np.sin(2 * np.pi * freqs[i] * self.x / self.sampleRate) * amps[i]
         return y / len(freqs)
 
 class GenericBuffer:
@@ -67,8 +67,11 @@ class GenericBuffer:
         self.y = np.zeros(bufferSize)
 
 class SineWaveGraph:
-    def __init__(self, bufferSize, sampleRate=8000, parent=None):
+    def __init__(self, title, bufferSize, ymin=-1.5, ymax=1.5, sampleRate=8000, parent=None):
         # Matplotlib Figure
+        self.ymax = ymax
+        self.ymin = ymin
+        self.title = title
         self.fig, self.ax = plt.subplots(figsize=(5, 4))
         self.canvas = FigureCanvas(self.fig)
         initialBuffer = SinBuffer(bufferSize, sampleRate)
@@ -80,26 +83,40 @@ class SineWaveGraph:
     def update_buffer(self, x, y):
         self.line.set_xdata(x)
         self.line.set_ydata(y)
-        self.ax.set_ylim(-1.5, 1.5)
-        self.ax.set_title("Sine Wave")
+        self.ax.set_ylim(self.ymin, self.ymax)
+        self.ax.set_title(self.title)
         self.ax.set_xlabel("X")
         self.ax.set_ylabel("Y")
         self.canvas.draw()
 
 class FrequencySlider:
-    def __init__(self, label_text, callback):
-        self.slider = QSlider()
-        self.slider.setOrientation(Qt.Horizontal)
-        self.slider.setMinimum(1)  # Minimum frequency
-        self.slider.setMaximum(1000)  # Maximum frequency
-        self.slider.setValue(1)  # Initial frequency (10 corresponds to 1.0)
-        self.slider.setTickInterval(1)
-        self.slider.valueChanged.connect(lambda value: callback(value))
-        self.label = QLabel(f"{label_text}: 1.0 Hz")
-        self.callback = callback
+    def __init__(self, label_text, callbackF, callbackA):
 
-    def update_label(self, frequency):
-        self.label.setText(f"Frequency: {frequency:.1f} Hz")
+        self.layout = QVBoxLayout()
+        self.fslider = QSlider()
+        self.fslider.setOrientation(Qt.Horizontal)
+        self.fslider.setMinimum(1)  # Minimum frequency
+        self.fslider.setMaximum(1000)  # Maximum frequency
+        self.fslider.setValue(1)  
+        self.fslider.setTickInterval(1)
+        self.fslider.valueChanged.connect(lambda value: callbackF(value))
+
+        self.aslider = QSlider()
+        self.aslider.setOrientation(Qt.Horizontal)
+        self.aslider.setMinimum(0)  # Minimum amplitude
+        self.aslider.setMaximum(1000)  # Maximum amplitude
+        self.aslider.setValue(1000)  
+        self.aslider.setTickInterval(1)
+        self.aslider.valueChanged.connect(lambda value: callbackA(value/1000))
+
+        self.label = QLabel(f"{label_text}: 1.0 Hz")
+
+        self.layout.addWidget(self.fslider)
+        self.layout.addWidget(self.aslider)
+        self.layout.addWidget(self.label)
+
+    def update_label(self, frequency, amplitude):
+        self.label.setText(f"{frequency:.1f}Hz {amplitude:.2} V")
 
 class SineWaveApp(QWidget):
     def __init__(self):
@@ -110,35 +127,49 @@ class SineWaveApp(QWidget):
         self.sampleRate = 8000
 
         # Layout
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
+
+        v_layout0 = QVBoxLayout()
+        v_layout1 = QVBoxLayout()
+        h_layout = QHBoxLayout()
 
         # Create Graph
-        self.graph0 = SineWaveGraph(bufferSize=self.bufferSize)
-        layout.addWidget(self.graph0.canvas)
+        self.graph0 = SineWaveGraph(title="input", bufferSize=self.bufferSize)
+        v_layout0.addWidget(self.graph0.canvas)
 
-        self.graph1 = SineWaveGraph(bufferSize=self.bufferSize)
-        layout.addWidget(self.graph1.canvas)
+        self.graph1 = SineWaveGraph(title="input windowed", bufferSize=self.bufferSize)
+        v_layout0.addWidget(self.graph1.canvas)
 
-        self.graph2 = SineWaveGraph(bufferSize=400)
-        layout.addWidget(self.graph2.canvas)
+        self.graph2 = SineWaveGraph(title="output tau",bufferSize=500, ymin=0, ymax=3)
+        v_layout1.addWidget(self.graph2.canvas)
+
+        self.graph3 = SineWaveGraph(title="output Hz",bufferSize=1500, ymin=0, ymax=3)
+        v_layout1.addWidget(self.graph3.canvas)
+
+        h_layout.addLayout(v_layout0),
+        h_layout.addLayout(v_layout1),
+        main_layout.addLayout(h_layout)
+
+        sliders_h_layout = QHBoxLayout()
 
         # Create Slider
-        self.slider0 = FrequencySlider("Frequency", self.update_frequency0)
-        layout.addWidget(self.slider0.slider)
-        layout.addWidget(self.slider0.label)
+        self.slider0 = FrequencySlider("Frequency", self.update_frequency0, self.update_amplitude0)
+        sliders_h_layout.addLayout(self.slider0.layout)
 
         # Create Slider
-        self.slider1 = FrequencySlider("Frequency", self.update_frequency1)
-        layout.addWidget(self.slider1.slider)
-        layout.addWidget(self.slider1.label)
+        self.slider1 = FrequencySlider("Frequency", self.update_frequency1, self.update_amplitude1)
+        sliders_h_layout.addLayout(self.slider1.layout)
 
         self.pitchLabel = QLabel("Hz")
-        layout.addWidget(self.pitchLabel)
 
+        main_layout.addLayout(sliders_h_layout)
+
+        main_layout.addWidget(self.pitchLabel)
         # Set layout
-        self.setLayout(layout)
+        self.setLayout(main_layout)
 
         self.freqs = [1,2]
+        self.amps = [1.0,1.0]
 
         self.yin = YinAudioPitchDetector(bufferSize=self.bufferSize, sampleRate=self.sampleRate)
 
@@ -147,25 +178,32 @@ class SineWaveApp(QWidget):
     def update_frequency0(self, frequency):
         self.freqs[0] = frequency
         self.update()
+    
+    def update_amplitude0(self, amplitude):
+        self.amps[0] = amplitude
+        self.update()
 
     def update_frequency1(self, frequency):
         self.freqs[1] = frequency
         self.update()
 
+    def update_amplitude1(self, amplitude):
+        self.amps[1] = amplitude
+        self.update()
+
     def update(self):
-        buffer = SinBuffer(bufferSize=self.bufferSize, sampleRate=self.sampleRate, freqs=self.freqs)
+        buffer = SinBuffer(bufferSize=self.bufferSize, sampleRate=self.sampleRate, freqs=self.freqs, amps=self.amps)
         self.yin.process(buffer.y)
         self.graph0.update_buffer(buffer.x, buffer.y)
         self.graph1.update_buffer(buffer.x, self.yin.mDataInputBuffer)
-        self.graph2.update_buffer(self.sampleRate/buffer.x, self.yin.mYinBuffer)
-        self.slider0.update_label(self.freqs[0])
-        self.slider1.update_label(self.freqs[1])
+        self.graph2.update_buffer(buffer.x, self.yin.mYinBuffer)
+        self.graph3.update_buffer(self.sampleRate/buffer.x, self.yin.mYinBuffer)
+        self.slider0.update_label(self.freqs[0], self.amps[0])
+        self.slider1.update_label(self.freqs[1], self.amps[1])
 
         min_index = np.argmin(self.yin.mYinBuffer[:self.yin.maxFindRange])
         frequency = self.sampleRate/min_index
         self.pitchLabel.setText(f"Frequency: {frequency:.2f} Hz")
-
-        
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
