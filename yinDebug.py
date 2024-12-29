@@ -10,12 +10,13 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 
 class YinAudioPitchDetector:
-    def __init__(self,bufferSize, sampleRate):
+    def __init__(self,bufferSize, sampleRate,windowFactor,windowSize):
+        self.windowFactor = windowFactor
         self.sampleRate = sampleRate
-        self.bufferSize = bufferSize
+        self.bufferSize = int(bufferSize)
         self.mYinBuffer = np.zeros(self.bufferSize)
         self.mDataInputBuffer = np.zeros(self.bufferSize)
-        self.mHannHelper = 0.5 - (0.5 * np.cos((2.0 * np.pi * np.arange(bufferSize)) / (bufferSize - 1)))
+        self.mHannHelper = 0.5 - (0.5 * np.cos((2.0 * np.pi * np.arange(bufferSize)) / (bufferSize*windowSize - 1)))
         self.minFrequency = 20.0
         self.currentThreshold = 0.12
 
@@ -24,14 +25,14 @@ class YinAudioPitchDetector:
         self.mYinBuffer = np.zeros(len(self.mYinBuffer))
         
         # Pre-Process: Apply Hann window over the sample
-        self.mDataInputBuffer = buffer * self.mHannHelper
+        self.mDataInputBuffer = buffer * self.mHannHelper * self.windowFactor + buffer * (1 - self.windowFactor)
 
         self.mYinBuffer[0] = 1
 
         runningSum = 0
         delta = 0
         self.tauEstimate = -1
-        self.maxFindRange = int(self.sampleRate / self.minFrequency)
+        self.maxFindRange = min(int(self.sampleRate / self.minFrequency), len(self.mYinBuffer))
         mThresholdOk = False
 
         for tau in range(1, self.maxFindRange):
@@ -111,9 +112,11 @@ class SineWaveGraph:
         # Initial frequency
         self.update_buffer(initialBuffer.x, initialBuffer.y)
 
-    def update_buffer(self, x, y):
+    def update_buffer(self, x, y, minX=None, maxX=None):
         self.line.set_xdata(x)
         self.line.set_ydata(y)
+
+        self.ax.set_xlim(minX or min(x), maxX or max(x))
         self.ax.set_ylim(self.ymin, self.ymax)
         self.ax.set_title(self.title)
         self.ax.set_xlabel("X")
@@ -142,6 +145,29 @@ class BorderedWidget():
     
     def addWidget(self, child:QWidget):
         self.layout.addWidget(child)
+
+class FactorSlider:
+    def __init__(self, factor, callback, multiplier=1.0, min=0.0, max=1000.0, parentLayout:QBoxLayout=None):
+        self.layout = QVBoxLayout()
+
+        self.label = QLabel("")
+        self.layout.addWidget(self.label)
+
+        self.slider = QSlider()
+        self.slider.setOrientation(Qt.Horizontal)
+        self.slider.setMinimum(int(min))  
+        self.slider.setMaximum(int(max))  
+        self.slider.setValue(int(factor*1000))  
+        self.slider.setTickInterval(1)
+        self.slider.valueChanged.connect(lambda value: callback(value/1000))
+        self.layout.addWidget(self.slider)
+
+        if parentLayout is not None:
+            parentLayout.addLayout(self.layout)
+
+
+    def update_label(self, text: str):
+        self.label.setText(text)
 
 class FrequencySlider:
     def __init__(self, label_text, freq, amp, callbackF, callbackA, parentLayout:QBoxLayout=None):
@@ -181,8 +207,11 @@ class SineWaveApp(QWidget):
         super().__init__()
         self.setWindowTitle("Sine Wave Frequency Adjuster")
 
+        self.windowSize = 1.0
+        self.windowFactor = 1.0
         self.bufferSize = 1000
         self.sampleRate = 8000
+        self.bufferSizeFactor = self.bufferSize/self.sampleRate
         self.freqs = [82,557]
         self.amps = [1.0,0.31]
 
@@ -192,6 +221,28 @@ class SineWaveApp(QWidget):
         input_layout = QVBoxLayout()
 
         input_layout.setAlignment(Qt.AlignTop)
+
+        bufferSizeSampleRateBox = BorderedWidget(input_layout)
+
+        # Create Dropdown Menu for Sample Rates
+        self.sample_rate_dropdown = SampleRateDropdown("Sample Rate", self.change_sample_rate, parentLayout=bufferSizeSampleRateBox.layout)
+
+        self.bufferSizeSlider = FactorSlider(self.bufferSizeFactor, 
+                                             multiplier=self.sampleRate, 
+                                             callback=self.updateBufferSize, 
+                                             min=1,
+                                             max=500,
+                                             parentLayout=bufferSizeSampleRateBox.layout)
+
+        self.windowSlider = FactorSlider(self.windowFactor, 
+                                         callback=self.updateWindowFactor, 
+                                         parentLayout=bufferSizeSampleRateBox.layout)
+
+        self.windowSizeSlider = FactorSlider(self.windowSize, 
+                                             min=1000,
+                                             max=2000,
+                                             callback=self.updateWindowSize, 
+                                             parentLayout=bufferSizeSampleRateBox.layout)
 
         sliders_h_layout = QVBoxLayout()
         sliders_h_layout.setAlignment(Qt.AlignTop)
@@ -213,11 +264,6 @@ class SineWaveApp(QWidget):
                                        self.update_amplitude1, 
                                        BorderedWidget(sliders_h_layout).layout
                                        )
-
-
-
-        # Create Dropdown Menu for Sample Rates
-        self.sample_rate_dropdown = SampleRateDropdown("Sample Rate", self.change_sample_rate, parentLayout=BorderedWidget(input_layout).layout)
 
         input_layout.addLayout(sliders_h_layout)
 
@@ -271,9 +317,18 @@ class SineWaveApp(QWidget):
         main_layout.addLayout(output_layout,3)
         # Set layout
         self.setLayout(main_layout)
+        self.update()
 
-        self.yin = YinAudioPitchDetector(bufferSize=self.bufferSize, sampleRate=self.sampleRate)
+    def updateWindowSize(self, windowSize):
+        self.windowSize = windowSize
+        self.update()
 
+    def updateWindowFactor(self, windowFactor):
+        self.windowFactor = windowFactor
+        self.update()
+
+    def updateBufferSize(self, bufferSizeFactor):
+        self.bufferSizeFactor = bufferSizeFactor
         self.update()
 
     def change_sample_rate(self, selected_rate):
@@ -299,14 +354,23 @@ class SineWaveApp(QWidget):
         self.update()
 
     def update(self):
+        self.bufferSize = int(self.sampleRate * self.bufferSizeFactor)
+        self.yin = YinAudioPitchDetector(bufferSize=self.bufferSize, 
+                                         sampleRate=self.sampleRate, 
+                                         windowFactor=self.windowFactor, 
+                                         windowSize=self.windowSize
+                                         )
         buffer = SinBuffer(bufferSize=self.bufferSize, sampleRate=self.sampleRate, freqs=self.freqs, amps=self.amps)
         self.yin.process(buffer.y)
         self.graph0.update_buffer(buffer.x, buffer.y)
         self.graph1.update_buffer(buffer.x, self.yin.mDataInputBuffer)
-        self.graph2.update_buffer(buffer.x, self.yin.mYinBuffer)
-        self.graph3.update_buffer(self.sampleRate/buffer.x, self.yin.mYinBuffer)
+        self.graph2.update_buffer(buffer.x, self.yin.mYinBuffer, maxX=self.yin.maxFindRange)
+        self.graph3.update_buffer(self.sampleRate/buffer.x[1:], self.yin.mYinBuffer[1:], minX=20 ,maxX=1000)
         self.slider0.update_label(self.freqs[0], self.sampleRate/self.freqs[0], self.amps[0])
         self.slider1.update_label(self.freqs[1], self.sampleRate/self.freqs[1], self.amps[1])
+        self.bufferSizeSlider.update_label(f"BufferSize: {self.bufferSize} {self.bufferSizeFactor*1000}ms")
+        self.windowSlider.update_label(f"Window Factor: {self.windowFactor}")
+        self.windowSizeSlider.update_label(f"Window size: {self.windowSize}")
 
         min_index = max(np.argmin(self.yin.mYinBuffer[:self.yin.maxFindRange]),1)
         frequency = self.sampleRate/min_index
