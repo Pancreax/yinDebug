@@ -4,21 +4,22 @@ import termios
 import tty
 import os
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QWidget, QComboBox, QGridLayout, QBoxLayout
+from PyQt5.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QWidget, QComboBox, QGridLayout, QBoxLayout, QCheckBox
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 
 class YinAudioPitchDetector:
-    def __init__(self,bufferSize, sampleRate,windowFactor,windowSize):
+    def __init__(self,bufferSize, sampleRate,windowFactor,windowSize,squareDiff,yinThreshold):
+        self.squareDiff = squareDiff
         self.windowFactor = windowFactor
         self.sampleRate = sampleRate
+        self.yinThreshold = yinThreshold
         self.bufferSize = int(bufferSize)
         self.mYinBuffer = np.zeros(self.bufferSize)
         self.mDataInputBuffer = np.zeros(self.bufferSize)
         self.mHannHelper = 0.5 - (0.5 * np.cos((2.0 * np.pi * np.arange(bufferSize)) / (bufferSize*windowSize - 1)))
         self.minFrequency = 20.0
-        self.currentThreshold = 0.12
 
     def process(self, buffer):
         pitch = -1
@@ -39,7 +40,10 @@ class YinAudioPitchDetector:
             # Yin Algorithm: Difference function
             for j in range(len(self.mYinBuffer)):
                 delta = self.mDataInputBuffer[j] - self.mDataInputBuffer[(j + tau)%len(self.mYinBuffer)]
-                self.mYinBuffer[tau] += delta * delta
+                if self.squareDiff:
+                    self.mYinBuffer[tau] += delta * delta
+                else:
+                    self.mYinBuffer[tau] += abs(delta)
 
             # Yin Algorithm: Cumulative mean normalized difference function
             runningSum += self.mYinBuffer[tau]
@@ -51,7 +55,7 @@ class YinAudioPitchDetector:
                 if self.mYinBuffer[tau - 1] <= self.mYinBuffer[tau]:
                     self.tauEstimate = tau - 1
                     break
-            elif self.mYinBuffer[tau] < self.currentThreshold:
+            elif self.mYinBuffer[tau] < self.yinThreshold:
                 mThresholdOk = True
 
         self.betterTau = -1
@@ -205,11 +209,13 @@ class FrequencySlider:
 class SineWaveApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Sine Wave Frequency Adjuster")
+        self.setWindowTitle("Yin viewer")
 
+        self.yinThreshold = 0.1
+        self.squareDiff = True
         self.windowSize = 1.0
         self.windowFactor = 1.0
-        self.bufferSize = 1000
+        self.bufferSize = 800
         self.sampleRate = 8000
         self.bufferSizeFactor = self.bufferSize/self.sampleRate
         self.freqs = [82,557]
@@ -243,6 +249,17 @@ class SineWaveApp(QWidget):
                                              max=2000,
                                              callback=self.updateWindowSize, 
                                              parentLayout=bufferSizeSampleRateBox.layout)
+        
+        self.yinThresholdSlider = FactorSlider(self.yinThreshold, 
+                                             min=0,
+                                             max=1000,
+                                             callback=self.updateYinThreshold, 
+                                             parentLayout=bufferSizeSampleRateBox.layout)
+        
+        self.diffCheckbox = QCheckBox("Square difference")
+        self.diffCheckbox.setCheckState(Qt.Checked)
+        self.diffCheckbox.stateChanged.connect(self.toggleSquareDiff)
+        bufferSizeSampleRateBox.layout.addWidget(self.diffCheckbox)
 
         sliders_h_layout = QVBoxLayout()
         sliders_h_layout.setAlignment(Qt.AlignTop)
@@ -319,6 +336,14 @@ class SineWaveApp(QWidget):
         self.setLayout(main_layout)
         self.update()
 
+    def updateYinThreshold(self, yinThreshold):
+        self.yinThreshold = yinThreshold
+        self.update()
+
+    def toggleSquareDiff(self, state):
+        self.squareDiff = state == Qt.Checked
+        self.update()
+
     def updateWindowSize(self, windowSize):
         self.windowSize = windowSize
         self.update()
@@ -358,7 +383,9 @@ class SineWaveApp(QWidget):
         self.yin = YinAudioPitchDetector(bufferSize=self.bufferSize, 
                                          sampleRate=self.sampleRate, 
                                          windowFactor=self.windowFactor, 
-                                         windowSize=self.windowSize
+                                         windowSize=self.windowSize,
+                                         squareDiff=self.squareDiff,
+                                         yinThreshold=self.yinThreshold
                                          )
         buffer = SinBuffer(bufferSize=self.bufferSize, sampleRate=self.sampleRate, freqs=self.freqs, amps=self.amps)
         self.yin.process(buffer.y)
@@ -371,6 +398,7 @@ class SineWaveApp(QWidget):
         self.bufferSizeSlider.update_label(f"BufferSize: {self.bufferSize} {self.bufferSizeFactor*1000}ms")
         self.windowSlider.update_label(f"Window Factor: {self.windowFactor}")
         self.windowSizeSlider.update_label(f"Window size: {self.windowSize}")
+        self.yinThresholdSlider.update_label(f"Yin threshold: {self.yinThreshold}")
 
         min_index = max(np.argmin(self.yin.mYinBuffer[:self.yin.maxFindRange]),1)
         frequency = self.sampleRate/min_index
