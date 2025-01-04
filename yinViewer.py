@@ -206,7 +206,7 @@ class FrequencySlider:
     def update_label(self, frequency, tau, amplitude):
         self.label.setText(f"{frequency:.1f}Hz {tau:.1f}tau {amplitude:.2} V")
 
-class SineWaveApp(QWidget):
+class YinViewerApp(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Yin viewer")
@@ -423,7 +423,7 @@ def listen_for_quit():
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = SineWaveApp()
+    window = YinViewerApp()
     window.show()
 
     # Start a thread to listen for 'q' key press
