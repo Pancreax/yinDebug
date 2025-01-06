@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 from matplotlib.ticker import MaxNLocator
+from matplotlib.widgets import CheckButtons
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 import re
 import subprocess
@@ -62,6 +64,11 @@ class DualBufferGraph:
         self.slider_samples_output = Slider(self.ax_samples_output, "Output X", 10, 200, valinit=self.samples_output)
         self.slider_samples_output.on_changed(self.update_output_samples)
 
+        # Add a checkbox to toggle logarithmic scale
+        self.checkbox_ax = plt.axes([0.58, 0.05, 0.15, 0.03], facecolor='lightgoldenrodyellow')
+        self.checkbox = CheckButtons(self.checkbox_ax, ['Log Scale'], [False])
+        self.checkbox.on_clicked(self.toggle_log_scale)
+
         # Add a secondary x-axis
         def sample_to_inverse(sample_value):
             """Convert sample value to 8000/sample_value."""
@@ -77,17 +84,16 @@ class DualBufferGraph:
             inverse_value = np.where(inverse_value == 0.0 , 1.0, inverse_value)  # Replace zeros with 1
             return 8000 / inverse_value
 
-        secax = self.ax_output.secondary_xaxis('top', functions=(sample_to_inverse, inverse_to_sample))
-        secax.set_xlabel("8000 / Sample Value")
+        self.secax = self.ax_output.secondary_xaxis('top', functions=(sample_to_inverse, inverse_to_sample))
+        self.secax.set_xlabel("8000 / Sample Value")
         #secax.tick_params(axis='x', labelrotation=45)
 
-        tick_positions = [25, 50, 100, 200, 400, 800]  # Adjust this list as needed
-        secax.set_xticks(tick_positions)
+        self.secax.set_xticks([25, 50, 100, 200, 400, 800])
         #secax.set_xticklabels([f"{8000/x:.2f}" for x in tick_positions])  # Custom labels
 
 
         #secax.xaxis.set_major_locator(MaxNLocator(nbins=100))  # Adjust number of ticks
-        secax.tick_params(axis='x', labelrotation=30)  # Gentle rotation
+        self.secax.tick_params(axis='x', labelrotation=30)  # Gentle rotation
 
         self.ax_output.grid()
 
@@ -138,7 +144,38 @@ class DualBufferGraph:
 
         self.output_line.set_xdata(outSamples)
 
+        self.set_secondary_axis_formatter()
+        #self.secax.set_xticks([25, 50, 100, 200, 400, 800])
+
         self.fig.canvas.draw_idle()
+
+    def toggle_log_scale(self, label):
+        if label == 'Log Scale':
+            if self.ax_output.get_xscale() == 'linear':
+                self.ax_output.set_xscale('log')
+            else:
+                self.ax_output.set_xscale('linear')
+
+            # Reapply custom formatter to maintain simple numbers
+            self.set_secondary_axis_formatter()
+            self.fig.canvas.draw_idle()  # Redraw the figure to update
+            
+
+    def set_secondary_axis_formatter(self):
+
+        def eitaTrem(x,_):
+            crepen = list(map(float, filter(lambda x: (x > self.samples_output) ,[25, 50, 100, 200, 400, 800])))
+            print(crepen)
+            self.secax.set_xticks(crepen)
+            return f"{x:.0f}" if x > 0 else "0"
+            
+
+        self.ax_output.xaxis.set_major_formatter(
+            FuncFormatter(eitaTrem)
+        )
+        self.secax.xaxis.set_major_formatter(
+            FuncFormatter(eitaTrem)
+        )
 
 
     def show(self):
@@ -189,15 +226,15 @@ def read_logcat(graph):
 
     for line in iter(process.stdout.readline, ''):
         if "👹 input" in line or "👹 output" in line:  # Filter only relevant lines
-            print(f"DEBUG: {line.strip()}")  # Log the relevant line
+            #print(f"DEBUG: {line.strip()}")  # Log the relevant line
             buffer_type, buffer_data = parse_logcat_line(line)
 
             if buffer_type == "input":
                 last_input_buffer = buffer_data
-                print(f"Parsed Input: {last_input_buffer[:5]}... ({len(last_input_buffer)} samples)")
+                #print(f"Parsed Input: {last_input_buffer[:5]}... ({len(last_input_buffer)} samples)")
 
             elif buffer_type == "output":
-                print(f"Parsed Output: {buffer_data[:5]}... ({len(buffer_data)} samples)")
+                #print(f"Parsed Output: {buffer_data[:5]}... ({len(buffer_data)} samples)")
                 last_output_buffer = buffer_data
 
             if last_input_buffer is not None and last_output_buffer is not None:
