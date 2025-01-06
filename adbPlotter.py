@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import re
 import subprocess
@@ -10,8 +11,8 @@ from matplotlib.widgets import Slider
 class DualBufferGraph:
     def __init__(self, input_title, output_title):
         # Input graph
-        self.fig, (self.ax_input, self.ax_output) = plt.subplots(2, 1, figsize=(8, 6))
-        self.fig.subplots_adjust(left=0.1, bottom=0.3, top=0.95)  # Adjust for sliders
+        self.fig, (self.ax_input, self.ax_output) = plt.subplots(2, 1, figsize=(8, 8))
+        self.fig.subplots_adjust(left=0.1, bottom=0.3, top=0.95, hspace=0.6)  # Adjust for sliders
 
         # Initial parameters
         self.ymin_input = -100
@@ -20,11 +21,17 @@ class DualBufferGraph:
 
         self.ymin_output = 0.0
         self.ymax_output = 2.0
-        self.samples_output = 400
+        self.samples_output = 10
 
         # Plot initial data
         self.input_line, = self.ax_input.plot(range(self.samples_input), [0] * self.samples_input, label="Input")
-        self.output_line, = self.ax_output.plot(range(self.samples_output), [0] * self.samples_output, label="Output")
+
+        outSamples = range(self.samples_output)
+        outSamples = np.nan_to_num(outSamples, nan=1.0)
+        outSamples = np.where(outSamples == 0.0, 1.0, outSamples)  # Replace zeros with 1
+        outSamples = 8000 / outSamples
+
+        self.output_line, = self.ax_output.plot(outSamples, [0] * self.samples_output, label="Output")
 
         self.ax_input.set_title(input_title)
         self.ax_output.set_title(output_title)
@@ -36,24 +43,55 @@ class DualBufferGraph:
         self.ax_output.set_ylim(self.ymin_output, self.ymax_output)
 
         # Sliders for Input Y Scale
-        self.ax_ymin_input = plt.axes([0.1, 0.2, 0.35, 0.03], facecolor="lightgoldenrodyellow")
-        self.slider_ymin_input = Slider(self.ax_ymin_input, "Input Y ±", 10, 33000, valinit=self.ymax_input)
+        self.ax_ymin_input = plt.axes([0.12, 0.2, 0.3, 0.03], facecolor="lightgoldenrodyellow")
+        self.slider_ymin_input = Slider(self.ax_ymin_input, "Input Y", 10, 33000, valinit=self.ymax_input)
         self.slider_ymin_input.on_changed(self.update_input_y_scale)
 
         # Slider for Input Samples
-        self.ax_samples_input = plt.axes([0.55, 0.2, 0.35, 0.03], facecolor="lightgoldenrodyellow")
-        self.slider_samples_input = Slider(self.ax_samples_input, "Input Samples", 10, 900, valinit=self.samples_input)
+        self.ax_samples_input = plt.axes([0.58, 0.2, 0.3, 0.03], facecolor="lightgoldenrodyellow")
+        self.slider_samples_input = Slider(self.ax_samples_input, "Input X", 10, 900, valinit=self.samples_input)
         self.slider_samples_input.on_changed(self.update_input_samples)
 
         # Sliders for Output Y Scale
-        self.ax_ymin_output = plt.axes([0.1, 0.1, 0.35, 0.03], facecolor="lightblue")
-        self.slider_ymin_output = Slider(self.ax_ymin_output, "Output Y ±", 0.1, 2.0, valinit=self.ymax_output)
+        self.ax_ymin_output = plt.axes([0.12, 0.1, 0.3, 0.03], facecolor="lightblue")
+        self.slider_ymin_output = Slider(self.ax_ymin_output, "Output Y", 0.1, 2.0, valinit=self.ymax_output)
         self.slider_ymin_output.on_changed(self.update_output_y_scale)
 
         # Slider for Output Samples
-        self.ax_samples_output = plt.axes([0.55, 0.1, 0.35, 0.03], facecolor="lightblue")
-        self.slider_samples_output = Slider(self.ax_samples_output, "Output Samples", 10, 900, valinit=self.samples_output)
+        self.ax_samples_output = plt.axes([0.58, 0.1, 0.3, 0.03], facecolor="lightblue")
+        self.slider_samples_output = Slider(self.ax_samples_output, "Output X", 10, 200, valinit=self.samples_output)
         self.slider_samples_output.on_changed(self.update_output_samples)
+
+        # Add a secondary x-axis
+        def sample_to_inverse(sample_value):
+            """Convert sample value to 8000/sample_value."""
+
+            sample_value = np.nan_to_num(sample_value, nan=1.0)
+            sample_value = np.where(sample_value == 0.0, 1.0, sample_value)  # Replace zeros with 1
+            return 8000 / sample_value
+
+        def inverse_to_sample(inverse_value):
+            """Convert 8000/sample_value back to sample value."""
+            inverse_value = np.nan_to_num(inverse_value, nan=1.0)
+            #inverse_value = np.nan_to_num(inverse_value, nan=1.0)
+            inverse_value = np.where(inverse_value == 0.0 , 1.0, inverse_value)  # Replace zeros with 1
+            return 8000 / inverse_value
+
+        secax = self.ax_output.secondary_xaxis('top', functions=(sample_to_inverse, inverse_to_sample))
+        secax.set_xlabel("8000 / Sample Value")
+        #secax.tick_params(axis='x', labelrotation=45)
+
+        tick_positions = [25, 50, 100, 200, 400, 800]  # Adjust this list as needed
+        secax.set_xticks(tick_positions)
+        #secax.set_xticklabels([f"{8000/x:.2f}" for x in tick_positions])  # Custom labels
+
+
+        #secax.xaxis.set_major_locator(MaxNLocator(nbins=100))  # Adjust number of ticks
+        secax.tick_params(axis='x', labelrotation=30)  # Gentle rotation
+
+        self.ax_output.grid()
+
+    
 
     def update_input_y_scale(self, val):
         """Update the Y scale for the input graph symmetrically."""
@@ -66,9 +104,6 @@ class DualBufferGraph:
     def update_input_samples(self, val):
         """Update the number of samples displayed for the input graph."""
         self.samples_input = int(self.slider_samples_input.val)
-        #self.input_line.set_xdata(range(self.samples_input))
-        #self.ax_input.set_xlim(0, self.samples_input)
-        #self.fig.canvas.draw_idle()
 
     def update_output_y_scale(self, val):
         """Update the Y scale for the output graph symmetrically."""
@@ -81,9 +116,6 @@ class DualBufferGraph:
     def update_output_samples(self, val):
         """Update the number of samples displayed for the output graph."""
         self.samples_output = int(self.slider_samples_output.val)
-        #self.output_line.set_xdata(range(self.samples_output))
-        #self.ax_output.set_xlim(0, self.samples_output)
-        #self.fig.canvas.draw_idle()
 
     def update_buffers(self, input_buffer, output_buffer):
         """Update the graphs with new buffers."""
@@ -92,13 +124,19 @@ class DualBufferGraph:
 
 
         self.ax_input.set_xlim(0, inputLenght)
-        self.ax_output.set_xlim(0, outputLenght)
+        self.ax_output.set_xlim(20, 8000/outputLenght)
 
-        self.input_line.set_ydata(input_buffer[:inputLenght])
-        self.input_line.set_xdata(range(inputLenght))
+        self.input_line.set_ydata(input_buffer)
+        self.input_line.set_xdata(range(len(input_buffer)))
 
-        self.output_line.set_ydata(output_buffer[:outputLenght])
-        self.output_line.set_xdata(range(outputLenght))
+        self.output_line.set_ydata(output_buffer)
+
+        outSamples = range(len(output_buffer))
+        outSamples = np.nan_to_num(outSamples, nan=1.0)
+        outSamples = np.where(outSamples == 0.0, 1.0, outSamples)  # Replace zeros with 1
+        outSamples = 8000 / outSamples
+
+        self.output_line.set_xdata(outSamples)
 
         self.fig.canvas.draw_idle()
 
